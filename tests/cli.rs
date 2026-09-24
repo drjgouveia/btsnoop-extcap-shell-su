@@ -30,6 +30,7 @@ fn capture() {
     cmd.arg("--extcap-interface")
         .arg("btsnoop-SERIAL")
         .arg("--capture")
+        .arg("--extcap-cleanup-postkill")
         .arg("--fifo")
         .arg("/dev/stdout")
         .arg("--btsnoop-log-file-path")
