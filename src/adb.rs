@@ -22,7 +22,7 @@ pub enum AdbError {
 
 /// Run `adb shell su -c` on the given device and verify root access.
 pub async fn root(serial: &str) -> Result<(), AdbError> {
-    let shell_uid = shell_su(serial, "id -u")
+    let shell_uid = shell(serial, "id -u")
         .await?
         .stdout(Stdio::piped())
         .spawn()?
@@ -47,15 +47,17 @@ pub async fn root(serial: &str) -> Result<(), AdbError> {
 pub async fn shell(serial: &str, command: &str) -> Result<Command, AdbError> {
     let adb_path = load_adb_path_compat().await?;
     let mut cmd = Command::new(adb_path);
-    cmd.args(["-s", serial, "shell", command]);
+    let su_cmd = format!("'{}'", command);
+    cmd.args(["-s", serial, "shell", "su", "-c", &su_cmd]);
+    // cmd.args(["-s", serial, "shell", "su", "-c", &("'" + command + "'")]);
     Ok(cmd)
 }
 
 /// Run `adb shell su -c "<command>"` on the given device.
-pub async fn shell_su(serial: &str, command: &str) -> Result<Command, AdbError> {
+/* pub async fn shell_su(serial: &str, command: &str) -> Result<Command, AdbError> {
     let escaped_command = command.replace('\'', "'\\''");
     shell(serial, &format!("su -c '{escaped_command}'")).await
-}
+}*/
 
 /// A structure representing a device connected over ADB.
 pub struct AdbDevice {
@@ -136,7 +138,7 @@ impl BtsnoopLogSettings {
             BtsnoopLogMode::Filtered => "filtered",
             BtsnoopLogMode::Full => "full",
         };
-        shell_su(
+        shell(
             serial,
             &format!("setprop persist.bluetooth.btsnooplogmode {mode_str}"),
         )
@@ -144,13 +146,13 @@ impl BtsnoopLogSettings {
         .spawn()?
         .wait()
         .await?;
-        shell_su(serial, "svc bluetooth disable")
+        shell(serial, "svc bluetooth disable")
             .await?
             .spawn()?
             .wait()
             .await?;
         tokio::time::sleep(Duration::from_secs(2)).await;
-        shell_su(serial, "svc bluetooth enable")
+        shell(serial, "svc bluetooth enable")
             .await?
             .spawn()?
             .wait()
@@ -160,7 +162,7 @@ impl BtsnoopLogSettings {
 
     /// Gets the value of btsnoop log mode setting.
     pub async fn mode(serial: &str) -> anyhow::Result<BtsnoopLogMode> {
-        let btsnooplogmode_proc = shell_su(serial, "getprop persist.bluetooth.btsnooplogmode")
+        let btsnooplogmode_proc = shell(serial, "getprop persist.bluetooth.btsnooplogmode")
             .await?
             .stdout(Stdio::piped())
             .spawn()?;

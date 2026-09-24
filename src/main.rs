@@ -183,7 +183,7 @@ async fn print_packets(
                 .await?;
             extcap_control.status_message("BTsnoop logging is turned off. Use View > Interface Toolbars to show the buttons to turn it on").await?;
         }
-        let mut cmd = adb::shell_su(
+        let mut cmd = adb::shell(
             serial,
             format!("tail -F -c +0 {btsnoop_log_file_path}").as_str(),
         )
