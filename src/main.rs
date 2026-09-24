@@ -46,6 +46,11 @@ pub struct BtsnoopArgs {
     #[command(flatten)]
     extcap: ExtcapArgs,
 
+    /// Extcap lifecycle callback used by Wireshark when cleaning up after
+    /// capture termination.
+    #[arg(long)]
+    pub extcap_cleanup_postkill: bool,
+
     /// When specified, tries to install this extcap in the correct Wireshark
     /// location.
     #[arg(long)]
