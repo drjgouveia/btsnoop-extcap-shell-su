@@ -38,6 +38,9 @@ mod adb;
 mod btsnoop_ext;
 mod install;
 
+const BTSNOOP_UNIX_EPOCH_OFFSET_US: i64 = 0x00dcddb30f2f8000;
+const PCAP_MAX_TIMESTAMP_SECONDS: u64 = u32::MAX as u64;
+
 /// An extcap plugin for Wireshark or tshark that captures the btsnoop HCI logs
 /// from an Android device connected over adb.
 #[derive(Debug, Parser)]
@@ -100,7 +103,13 @@ async fn write_pcap_packets<W: Write, R: AsyncRead + Unpin + Send>(
         let mut packet_buf: Vec<u8> = vec![0_u8; packet_header.included_length as usize];
         input_reader.read_exact(&mut packet_buf).await?;
         if start_time.elapsed() > display_delay {
-            let timestamp = packet_header.timestamp();
+            let Some(timestamp) = normalize_timestamp(&packet_header) else {
+                warn!(
+                    "Skipping packet with unsupported timestamp value: {}",
+                    packet_header.timestamp_microseconds
+                );
+                continue;
+            };
             let direction =
                 Direction::parse_from_payload(&packet_buf).unwrap_or(Direction::Unknown);
             pcap_writer.write_packet(&PcapPacket {
@@ -112,6 +121,16 @@ async fn write_pcap_packets<W: Write, R: AsyncRead + Unpin + Send>(
         stdout().flush()?;
     }
     Ok(())
+}
+
+fn normalize_timestamp(packet_header: &PacketHeader) -> Option<Duration> {
+    let timestamp_us = if packet_header.timestamp_microseconds >= BTSNOOP_UNIX_EPOCH_OFFSET_US {
+        packet_header.timestamp_microseconds - BTSNOOP_UNIX_EPOCH_OFFSET_US
+    } else {
+        packet_header.timestamp_microseconds
+    };
+    let timestamp = Duration::from_micros(u64::try_from(timestamp_us).ok()?);
+    (timestamp.as_secs() <= PCAP_MAX_TIMESTAMP_SECONDS).then_some(timestamp)
 }
 
 async fn handle_control_packet(
@@ -143,6 +162,50 @@ async fn handle_control_packet(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use btsnoop::{CommandFlag, DirectionFlag, PacketFlags};
+
+    fn packet_header(timestamp_microseconds: i64) -> PacketHeader {
+        PacketHeader {
+            original_length: 1,
+            included_length: 1,
+            packet_flags: PacketFlags {
+                direction: DirectionFlag::Sent,
+                command: CommandFlag::Data,
+                reserved: 0,
+            },
+            culmulative_drops: 0,
+            timestamp_microseconds,
+        }
+    }
+
+    #[test]
+    fn normalize_timestamp_supports_btsnoop_epoch_timestamp() {
+        assert_eq!(
+            normalize_timestamp(&packet_header(0x00E03AB44A676000)),
+            Some(Duration::from_secs(946684800)),
+        );
+    }
+
+    #[test]
+    fn normalize_timestamp_supports_unix_epoch_timestamp() {
+        assert_eq!(
+            normalize_timestamp(&packet_header(1_764_000_000_123_456)),
+            Some(Duration::from_micros(1_764_000_000_123_456_u64)),
+        );
+    }
+
+    #[test]
+    fn normalize_timestamp_rejects_out_of_range_values() {
+        assert_eq!(
+            normalize_timestamp(&packet_header(((u32::MAX as i64) + 1) * 1_000_000)),
+            None
+        );
+    }
 }
 
 async fn print_packets(
