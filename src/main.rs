@@ -155,7 +155,7 @@ async fn print_packets(
     } else {
         match adb::root(serial).await {
             Err(e @ AdbError::RootDeclined) => {
-                extcap_control.info_message("Unable to run `adb root`. Make sure your device is on a userdebug or eng build").await?;
+                extcap_control.info_message("Unable to run `adb shell su -c`. Make sure your device has root access and grants `su` requests").await?;
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 Err(e)?
             }
@@ -178,7 +178,7 @@ async fn print_packets(
                 .await?;
             extcap_control.status_message("BTsnoop logging is turned off. Use View > Interface Toolbars to show the buttons to turn it on").await?;
         }
-        let mut cmd = adb::shell(
+        let mut cmd = adb::shell_su(
             serial,
             format!("tail -F -c +0 {btsnoop_log_file_path}").as_str(),
         )
