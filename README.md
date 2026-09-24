@@ -38,7 +38,7 @@ Detected devices are shown in Wireshark's __Capture__ interface list.
 1. Enable __Developer options__ on the device.
 2. In the __Developer options__ menu, activate the __Enable Bluetooth HCI snoop log__ toggle.
 3. Restart Bluetooth for logging to take effect.
-4. Run `adb root`
+4. Verify root shell access with `adb shell su -c id -u`
 
 ## Relationship with `androiddump`
 

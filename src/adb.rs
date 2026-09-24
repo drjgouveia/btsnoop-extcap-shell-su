@@ -13,23 +13,16 @@ static ADB_PATH: OnceLock<PathBuf> = OnceLock::new();
 pub enum AdbError {
     #[error("Adb not found. Please reinstall to configure the correct ADB path")]
     AdbNotFound,
-    #[error("Root was declined. Check that you are on a userdebug or eng build.")]
+    #[error("Root was declined. Check that your device has root access and grants `su` requests.")]
     RootDeclined,
 
     #[error(transparent)]
     IoError(#[from] std::io::Error),
 }
 
-/// Run adb root on the given device.
+/// Run `adb shell su -c` on the given device and verify root access.
 pub async fn root(serial: &str) -> Result<(), AdbError> {
-    let adb_path = load_adb_path_compat().await?;
-    Command::new(adb_path)
-        .args(["-s", serial, "root"])
-        .stdout(Stdio::null())
-        .spawn()?
-        .wait()
-        .await?;
-    let shell_uid = shell(serial, "id -u")
+    let shell_uid = shell_su(serial, "id -u")
         .await?
         .stdout(Stdio::piped())
         .spawn()?
@@ -38,7 +31,7 @@ pub async fn root(serial: &str) -> Result<(), AdbError> {
         .stdout;
     debug!("Shell UID={shell_uid:?}");
     if shell_uid != b"0\n" {
-        // If only `adb root` will return a different exit code...
+        // If only `adb shell su -c` will return a different exit code...
         Err(AdbError::RootDeclined)?;
     }
     Ok(())
@@ -56,6 +49,12 @@ pub async fn shell(serial: &str, command: &str) -> Result<Command, AdbError> {
     let mut cmd = Command::new(adb_path);
     cmd.args(["-s", serial, "shell", command]);
     Ok(cmd)
+}
+
+/// Run `adb shell su -c "<command>"` on the given device.
+pub async fn shell_su(serial: &str, command: &str) -> Result<Command, AdbError> {
+    let escaped_command = command.replace('\'', "'\\''");
+    shell(serial, &format!("su -c '{escaped_command}'")).await
 }
 
 /// A structure representing a device connected over ADB.
@@ -137,7 +136,7 @@ impl BtsnoopLogSettings {
             BtsnoopLogMode::Filtered => "filtered",
             BtsnoopLogMode::Full => "full",
         };
-        shell(
+        shell_su(
             serial,
             &format!("setprop persist.bluetooth.btsnooplogmode {mode_str}"),
         )
@@ -145,13 +144,13 @@ impl BtsnoopLogSettings {
         .spawn()?
         .wait()
         .await?;
-        shell(serial, "svc bluetooth disable")
+        shell_su(serial, "svc bluetooth disable")
             .await?
             .spawn()?
             .wait()
             .await?;
         tokio::time::sleep(Duration::from_secs(2)).await;
-        shell(serial, "svc bluetooth enable")
+        shell_su(serial, "svc bluetooth enable")
             .await?
             .spawn()?
             .wait()
@@ -161,7 +160,7 @@ impl BtsnoopLogSettings {
 
     /// Gets the value of btsnoop log mode setting.
     pub async fn mode(serial: &str) -> anyhow::Result<BtsnoopLogMode> {
-        let btsnooplogmode_proc = shell(serial, "getprop persist.bluetooth.btsnooplogmode")
+        let btsnooplogmode_proc = shell_su(serial, "getprop persist.bluetooth.btsnooplogmode")
             .await?
             .stdout(Stdio::piped())
             .spawn()?;
